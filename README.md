@@ -32,30 +32,6 @@ Código fuente → GitHub → GitHub Actions → WIF → Cloud Build → Cloud R
 
 
 
-## Arquitectura
-```mermaid
-flowchart TD
-
-A[VS Code - Codigo] --> B[Git Commit]
-B --> C[Git Push]
-C --> D[GitHub]
-
-D --> E[GitHub Actions]
-E --> F[Autenticacion WIF]
-F --> G[GCP IAM]
-
-G --> H[Service Account]
-H --> I[Workload Identity]
-
-I --> J[Cloud Build]
-J --> K[Artifact Registry]
-
-K --> L[Cloud Run]
-L --> M[Servicio Activo]
-M --> N[Procesamiento Flask]
-N --> O[Generacion Excel]
-O --> P[Cloud Storage]
-
 
 
 
