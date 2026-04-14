@@ -33,30 +33,27 @@ Código fuente → GitHub → GitHub Actions → WIF → Cloud Build → Cloud R
 
 ## Arquitectura
 
+
 ```mermaid
-flowchart TD
+flowchart LR
 
-A[VS Code - Codigo] --> B[Git Commit]
-B --> C[Git Push]
-C --> D[GitHub]
+Dev[Desarrollo Local] --> Repo[Repositorio GitHub]
+Repo --> CI[GitHub Actions CI/CD]
 
-D --> E[GitHub Actions]
-E --> F[Autenticacion WIF]
-F --> G[GCP IAM]
+CI --> Auth[Workload Identity Federation]
+Auth --> IAM[Cuenta de Servicio GCP]
 
-G --> H[Service Account]
-H --> I[Workload Identity]
+IAM --> Build[Cloud Build]
+Build --> Registry[Artifact Registry]
 
-I --> J[Cloud Build]
-J --> K[Artifact Registry]
+Registry --> Run[Cloud Run]
 
-K --> L[Cloud Run]
-L --> M[Servicio Activo]
-M --> N[Procesamiento Flask]
-N --> O[Generacion Excel]
-O --> P[Cloud Storage]
+Run --> Storage[Cloud Storage]
+Run --> API[SIIIFA API]
+
+API --> Users[Consumidores / Sistemas Externos]
+Storage --> Users
 ```
-
 
 ### 3.2 Componentes
 
