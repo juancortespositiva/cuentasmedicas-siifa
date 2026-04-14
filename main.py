@@ -142,15 +142,12 @@ app = Flask(__name__)
 
 @app.route("/v1/generar-siifa")
 def ejecutar():
-    """
-    Endpoint principal para ejecutar el proceso.
-
-    Returns:
-        str: Resultado de la ejecucion
-    """
-    resultado = main()
-    return resultado
-
+    try:
+        resultado = main()
+        return resultado
+    except Exception as e:
+        logging.error(f"Error en ejecucion: {str(e)}")
+        return f"Error: {str(e)}", 500
 
 # ==============================
 # ENTRYPOINT CLOUD RUN
