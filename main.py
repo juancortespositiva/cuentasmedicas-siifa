@@ -53,7 +53,7 @@ def subir_gcs_desde_memoria(buffer, nombre_archivo):
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    print(f"Archivo subido a: gs://{BUCKET_NAME}/{DESTINO_BLOB}/{nombre_archivo}")
+    print(f"Archivo subido a gcp: gs://{BUCKET_NAME}/{DESTINO_BLOB}/{nombre_archivo}")
 
 # MAIN
 def main():
