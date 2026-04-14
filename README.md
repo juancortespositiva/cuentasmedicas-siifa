@@ -55,6 +55,8 @@ M --> N[Procesamiento Flask]
 N --> O[Generacion Excel]
 O --> P[Cloud Storage]
 
+
+
 ### 3.2 Componentes
 
 * Control de código fuente: GitHub
