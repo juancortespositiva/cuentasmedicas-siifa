@@ -57,7 +57,7 @@ logging.basicConfig(level=logging.INFO)
 # 1. LEER BIGQUERY
 # ==============================
 def leer_bigquery():
-    client = bigquery.Client(project=PROJECT_ID)
+    client = bigquery.Client(project=PROJECT_ID, location="US")
 
     query = f"""
         SELECT *
