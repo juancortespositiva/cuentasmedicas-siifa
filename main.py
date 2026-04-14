@@ -64,14 +64,15 @@ def leer_bigquery():
 # ==============================
 # 2. INSERTAR AUDITORIA SIN DUPLICADOS
 # ==============================
+# ==============================
+# 2. INSERTAR AUDITORIA SIN DUPLICADOS (FIXED)
+# ==============================
 def insertar_auditoria(df):
     """
     Inserta registros en la tabla de auditoria evitando duplicados
-    basados en Numero_factura.
-
-    Args:
-        df (pandas.DataFrame): Datos de entrada.
+    basados en numero_factura.
     """
+
     client = bigquery.Client(project=PROJECT_ID)
 
     if df.empty:
@@ -80,40 +81,66 @@ def insertar_auditoria(df):
 
     tabla_destino = f"{PROJECT_ID}.{DATASET}.{TABLA_AUDITORIA}"
 
-    # ==============================
-    # 1. CONSULTAR FACTURAS EXISTENTES
-    # ==============================
-    query_existentes = f"""
-        SELECT Numero_factura
-        FROM `{tabla_destino}`
-    """
+    try:
+        logging.info("Iniciando proceso de auditoria")
 
-    df_existentes = client.query(query_existentes).to_dataframe()
+        # ==============================
+        # 1. CONSULTAR FACTURAS EXISTENTES
+        # ==============================
+        query_existentes = f"""
+            SELECT numero_factura
+            FROM `{tabla_destino}`
+        """
 
-    if not df_existentes.empty:
-        facturas_existentes = set(df_existentes["Numero_factura"].astype(str))
-        df = df[~df["Numero_factura"].astype(str).isin(facturas_existentes)]
+        df_existentes = client.query(query_existentes).to_dataframe()
 
-    logging.info(f"Registros nuevos a insertar: {len(df)}")
+        logging.info(f"Facturas existentes en auditoria: {len(df_existentes)}")
 
-    if df.empty:
-        logging.info("No hay registros nuevos (todos son duplicados)")
-        return
+        # ==============================
+        # 2. FILTRAR DUPLICADOS
+        # ==============================
+        if not df_existentes.empty:
+            facturas_existentes = set(df_existentes["numero_factura"].astype(str))
 
-    # ==============================
-    # 2. PREPARAR DATAFRAME DE AUDITORIA
-    # ==============================
-    df_aud = df.copy()
+            df = df[~df["Numero_factura"].astype(str).isin(facturas_existentes)]
 
-    df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df_aud))]
-    df_aud["estado"] = "SIMULADO"
-    df_aud["tipo_operacion"] = "INSERT"
-    df_aud["mensaje"] = "Simulacion exitosa"
-    df_aud["request_json"] = None
-    df_aud["response_json"] = None
-    df_aud["fecha_proceso"] = datetime.now()
-    df_aud["usuario"] = "cloud_run"
-    df_aud["origen"] = "API"
+        logging.info(f"Registros nuevos a insertar: {len(df)}")
+
+        if df.empty:
+            logging.info("No hay registros nuevos (todos duplicados)")
+            return
+
+        # ==============================
+        # 3. PREPARAR DATAFRAME
+        # ==============================
+        df_aud = df.copy()
+
+        # ⚠️ IMPORTANTE: bajar nombres a match con BigQuery
+        df_aud.columns = [col.lower() for col in df_aud.columns]
+
+        df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df_aud))]
+        df_aud["estado"] = "SIMULADO"
+        df_aud["tipo_operacion"] = "INSERT"
+        df_aud["mensaje"] = "Simulacion exitosa"
+        df_aud["request_json"] = None
+        df_aud["response_json"] = None
+        df_aud["fecha_proceso"] = datetime.now()
+        df_aud["usuario"] = "cloud_run"
+        df_aud["origen"] = "API"
+
+        logging.info("Insertando en BigQuery...")
+
+        # ==============================
+        # 4. INSERTAR
+        # ==============================
+        job = client.load_table_from_dataframe(df_aud, tabla_destino)
+        job.result()
+
+        logging.info(f"Registros insertados en auditoria: {len(df_aud)}")
+
+    except Exception as e:
+        logging.error(f"Error en auditoria: {str(e)}")
+        raise
 
     # ==============================
     # 3. INSERTAR EN BIGQUERY
