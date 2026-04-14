@@ -2,15 +2,17 @@
 Modulo: facturacion_siifa
 
 Descripcion:
-Este modulo implementa un proceso ETL ligero que:
-1. Consulta datos desde BigQuery (vista base)
-2. Inserta registros en una tabla de auditoria evitando duplicados
-3. Genera un archivo Excel en memoria
-4. Carga el archivo a Cloud Storage
-5. Expone el proceso mediante un endpoint Flask (Cloud Run)
+Servicio de integración entre BigQuery y SIIFA que:
+1. Lee datos desde una vista en BigQuery
+2. Autentica contra SIIFA
+3. Envía facturas vía API (POST masivo)
+4. Registra resultados en BigQuery (TRUNCATE + INSERT)
+5. Inserta auditoría de trazabilidad
+6. Genera archivo Excel
+7. Almacena evidencia en GCS
 
 Autor: VP Tecnica - Positiva Compania de Seguros
-Fecha: 2026-03-24
+Fecha: 2026-03-18
 """
 
 from google.cloud import bigquery, storage
@@ -20,21 +22,34 @@ from io import BytesIO
 from flask import Flask
 import logging
 import uuid
+import requests
+import os
+from dotenv import load_dotenv
 
 # ==============================
-# CONFIGURACION
+# LOAD ENV
 # ==============================
-PROJECT_ID = "analitica-contact-center-dev"
-DATASET = "CUENTAS_MEDICAS"
+load_dotenv()
+
+# ==============================
+# CONFIG
+# ==============================
+PROJECT_ID = os.getenv("PROJECT_ID")
+DATASET = os.getenv("DATASET")
+
 VIEW = "vw_facturacion_siifa_dian"
 TABLA_AUDITORIA = "auditoria_siifa_envios"
+TABLA_RESULTADOS = "resultado_siifa"
 
-BUCKET_NAME = "buckets-aws"
-DESTINO_BLOB = "cuentasmedicas/facturacion_siifa"
+BUCKET_NAME = os.getenv("BUCKET_NAME")
+DESTINO_BLOB = os.getenv("DESTINO_BLOB")
 
-# ==============================
-# LOGS
-# ==============================
+BASE_AUTH = os.getenv("SIIFA_BASE_AUTH")
+BASE_API = os.getenv("SIIFA_BASE_API")
+
+USERNAME = os.getenv("SIIFA_USER")
+PASSWORD = os.getenv("SIIFA_PASSWORD")
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -42,9 +57,6 @@ logging.basicConfig(level=logging.INFO)
 # 1. LEER BIGQUERY
 # ==============================
 def leer_bigquery():
-    """
-    Consulta datos desde la vista base en BigQuery.
-    """
     client = bigquery.Client(project=PROJECT_ID)
 
     query = f"""
@@ -53,193 +65,214 @@ def leer_bigquery():
     """
 
     df = client.query(query).to_dataframe()
-    logging.info(f"Registros leidos desde BigQuery: {len(df)}")
+    logging.info(f"Registros leidos: {len(df)}")
 
     return df
 
 
 # ==============================
-# 2. INSERTAR AUDITORIA SIN DUPLICADOS (FIX REAL)
+# 2. LOGIN SIIFA
 # ==============================
-def insertar_auditoria(df):
-    """
-    Inserta registros en la tabla de auditoria evitando duplicados
-    basados en numero_factura.
-    """
+def login():
+    logging.info("Autenticando en SIIFA...")
 
+    r = requests.post(
+        f"{BASE_AUTH}/api/Auth/login",
+        json={"userName": USERNAME, "password": PASSWORD},
+        timeout=30
+    )
+
+    if r.status_code != 200:
+        raise Exception(f"Error login SIIFA: {r.text}")
+
+    data = r.json()
+
+    token = (
+        data.get("token")
+        or data.get("access_token")
+        or data.get("data", {}).get("token")
+    )
+
+    if not token:
+        raise Exception(f"No se obtuvo token: {data}")
+
+    logging.info("Login exitoso")
+    return token
+
+
+# ==============================
+# 3. CONSTRUIR PAYLOAD
+# ==============================
+def construir_payload(df):
+    lista = []
+
+    for _, row in df.iterrows():
+        lista.append({
+            "numeroFactura": row["Numero_factura"],
+            "nitEmisor": row["ID_emisor"],
+            "nitAdquiriente": row["ID_adquiriente"],
+            "fechaRadicado": datetime.now().isoformat(),
+            "radicado": f"RAD-{row['Numero_factura']}"
+        })
+
+    return {"listaRadicado": lista}
+
+
+# ==============================
+# 4. ENVIAR SIIFA
+# ==============================
+def enviar_siifa(df, token):
+    url = f"{BASE_API}/api/FacturaRadicado/Masivo"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = construir_payload(df)
+
+    logging.info("Enviando datos a SIIFA...")
+
+    response = requests.post(url, json=payload, headers=headers, timeout=60)
+
+    logging.info(f"Respuesta SIIFA: {response.status_code}")
+
+    return response.status_code, response.text
+
+
+# ==============================
+# 5. TRUNCATE RESULTADOS
+# ==============================
+def truncate_resultados():
     client = bigquery.Client(project=PROJECT_ID)
 
-    if df.empty:
-        logging.info("No hay datos para auditoria")
-        return
+    query = f"TRUNCATE TABLE `{PROJECT_ID}.{DATASET}.{TABLA_RESULTADOS}`"
+    client.query(query).result()
 
-    tabla_destino = f"{PROJECT_ID}.{DATASET}.{TABLA_AUDITORIA}"
-
-    try:
-        logging.info("Iniciando proceso de auditoria")
-
-        # ==============================
-        # 1. CONSULTAR FACTURAS EXISTENTES
-        # ==============================
-        query_existentes = f"""
-            SELECT numero_factura
-            FROM `{tabla_destino}`
-        """
-
-        df_existentes = client.query(query_existentes).to_dataframe()
-
-        logging.info(f"Facturas existentes: {len(df_existentes)}")
-
-        # ==============================
-        # 2. FILTRAR DUPLICADOS
-        # ==============================
-        if not df_existentes.empty:
-            facturas_existentes = set(df_existentes["numero_factura"].astype(str))
-            df = df[~df["Numero_factura"].astype(str).isin(facturas_existentes)]
-
-        logging.info(f"Registros nuevos a insertar: {len(df)}")
-
-        if df.empty:
-            logging.info("No hay registros nuevos (todo duplicado)")
-            return
-
-        # ==============================
-        # 3. MAPEO CORRECTO DE COLUMNAS
-        # ==============================
-        df_aud = pd.DataFrame()
-
-        df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df))]
-
-        df_aud["identificador_factura"] = df["Identificador_de_factura"]
-        df_aud["numero_factura"] = df["Numero_factura"]
-        df_aud["id_cuenta_nur"] = df["IdCuenta_Nur"]
-        df_aud["id_emisor"] = df["ID_emisor"]
-        df_aud["id_adquiriente"] = df["ID_adquiriente"]
-        df_aud["valor_total"] = df["Valor_total"]
-        df_aud["pagos_previos"] = df["Pagos_previos"]
-        df_aud["fecha_emision"] = df["Fecha_emision"]
-        df_aud["fecha_vencimiento"] = df["Fecha_vencimiento"]
-
-# Campos de auditoria
-        df_aud["estado"] = "SIMULADO"
-        df_aud["tipo_operacion"] = "INSERT"
-        df_aud["mensaje"] = "Simulacion exitosa"
-        df_aud["request_json"] = None
-        df_aud["response_json"] = None
-        df_aud["fecha_proceso"] = datetime.now()
-        df_aud["usuario"] = "cloud_run"
-        df_aud["origen"] = "API"
-
-        # ==============================
-        # CAMPOS DE CONTROL
-        # ==============================
-        df_aud["estado"] = "SIMULADO"
-        df_aud["tipo_operacion"] = "INSERT"
-        df_aud["mensaje"] = "Simulacion exitosa"
-        df_aud["request_json"] = None
-        df_aud["response_json"] = None
-        df_aud["fecha_proceso"] = datetime.now()
-        df_aud["usuario"] = "cloud_run"
-        df_aud["origen"] = "API"
-
-        # ==============================
-        # 4. INSERTAR EN BIGQUERY
-        # ==============================
-        logging.info("Insertando registros en auditoria...")
-
-        job = client.load_table_from_dataframe(df_aud, tabla_destino)
-        job.result()
-
-        logging.info(f"Registros insertados: {len(df_aud)}")
-
-    except Exception as e:
-        logging.error(f"Error en auditoria: {str(e)}")
-        raise
+    logging.info("Tabla resultado_siifa truncada")
 
 
 # ==============================
-# 3. GENERAR EXCEL EN MEMORIA
+# 6. GUARDAR RESULTADO
 # ==============================
-def generar_excel_en_memoria(df):
-    """
-    Genera un archivo Excel en memoria.
-    """
+def guardar_resultado(response_text, status):
+    client = bigquery.Client(project=PROJECT_ID)
+
+    df_res = pd.DataFrame([{
+        "id": str(uuid.uuid4()),
+        "fecha": datetime.now(),
+        "status": status,
+        "response": response_text
+    }])
+
+    tabla = f"{PROJECT_ID}.{DATASET}.{TABLA_RESULTADOS}"
+
+    job = client.load_table_from_dataframe(df_res, tabla)
+    job.result()
+
+    logging.info("Resultado SIIFA almacenado")
+
+
+# ==============================
+# 7. AUDITORIA
+# ==============================
+def insertar_auditoria(df, response_text):
+    client = bigquery.Client(project=PROJECT_ID)
+
+    tabla = f"{PROJECT_ID}.{DATASET}.{TABLA_AUDITORIA}"
+
+    df_aud = pd.DataFrame()
+
+    df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df))]
+    df_aud["identificador_factura"] = df["Identificador_de_factura"]
+    df_aud["numero_factura"] = df["Numero_factura"]
+    df_aud["id_cuenta_nur"] = df["IdCuenta_Nur"]
+    df_aud["id_emisor"] = df["ID_emisor"]
+    df_aud["id_adquiriente"] = df["ID_adquiriente"]
+    df_aud["valor_total"] = df["Valor_total"]
+    df_aud["pagos_previos"] = df["Pagos_previos"]
+    df_aud["fecha_emision"] = df["Fecha_emision"]
+    df_aud["fecha_vencimiento"] = df["Fecha_vencimiento"]
+
+    df_aud["estado"] = "ENVIADO"
+    df_aud["tipo_operacion"] = "INSERT"
+    df_aud["mensaje"] = "Envio SIIFA"
+    df_aud["request_json"] = None
+    df_aud["response_json"] = response_text
+    df_aud["fecha_proceso"] = datetime.now()
+    df_aud["usuario"] = "cloud_run"
+    df_aud["origen"] = "API"
+
+    job = client.load_table_from_dataframe(df_aud, tabla)
+    job.result()
+
+    logging.info("Auditoria registrada")
+
+
+# ==============================
+# 8. EXCEL
+# ==============================
+def generar_excel(df):
     buffer = BytesIO()
 
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='SIIFA')
+        df.to_excel(writer, index=False)
 
     buffer.seek(0)
 
-    fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_archivo = f"facturacion_siifa_{fecha}.xlsx"
-
-    logging.info(f"Excel generado: {nombre_archivo}")
-
-    return buffer, nombre_archivo
+    nombre = f"siifa_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return buffer, nombre
 
 
-# ==============================
-# 4. SUBIR A GCS
-# ==============================
-def subir_gcs_desde_memoria(buffer, nombre_archivo):
-    """
-    Sube archivo a Google Cloud Storage.
-    """
+def subir_gcs(buffer, nombre):
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
 
-    blob = bucket.blob(f"{DESTINO_BLOB}/{nombre_archivo}")
+    blob = bucket.blob(f"{DESTINO_BLOB}/{nombre}")
+    blob.upload_from_file(buffer)
 
-    blob.upload_from_file(
-        buffer,
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    logging.info(f"Archivo subido a GCS: {nombre_archivo}")
+    logging.info("Archivo subido a GCS")
 
 
 # ==============================
-# 5. PROCESO PRINCIPAL
+# 9. MAIN
 # ==============================
 def main():
-    """
-    Ejecuta el flujo completo:
-    - Lee datos
-    - Inserta auditoria sin duplicados
-    - Genera Excel
-    - Sube a GCS
-    """
     df = leer_bigquery()
 
     if df.empty:
-        logging.info("No hay datos para procesar")
         return "Sin datos"
 
-    insertar_auditoria(df)
+    # ⚠️ MODO PRUEBA
+    df = df.head(5)
 
-    buffer, nombre_archivo = generar_excel_en_memoria(df)
-    subir_gcs_desde_memoria(buffer, nombre_archivo)
+    token = login()
 
-    return f"Proceso completado - {len(df)} registros evaluados"
+    status, response = enviar_siifa(df, token)
+
+    truncate_resultados()
+    guardar_resultado(response, status)
+
+    insertar_auditoria(df, response)
+
+    buffer, nombre = generar_excel(df)
+    subir_gcs(buffer, nombre)
+
+    return f"Proceso OK - status {status}"
 
 
 # ==============================
-# 6. API FLASK
+# 10. API
 # ==============================
 app = Flask(__name__)
 
-@app.route("/v1/generar-siifa")
+@app.route("/v1/siifa")
 def ejecutar():
-    """
-    Endpoint HTTP para ejecutar el proceso.
-    """
     try:
-        resultado = main()
-        return resultado
+        return main()
     except Exception as e:
-        logging.error(f"Error en ejecucion: {str(e)}")
-        return f"Error: {str(e)}", 500
+        logging.error(str(e))
+        return str(e), 500
 
 
 # ==============================

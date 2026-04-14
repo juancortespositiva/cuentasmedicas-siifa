@@ -1,6 +1,9 @@
-flask
-pandas
-openpyxl
-google-cloud-bigquery
-google-cloud-storage
-db-dtypes
+Flask==3.0.3
+gunicorn==22.0.0
+pandas==2.2.2
+openpyxl==3.1.5
+db-dtypes==1.2.0
+google-cloud-bigquery==3.25.0
+google-cloud-storage==2.18.2
+requests==2.32.3
+python-dotenv==1.0.1
