@@ -30,6 +30,31 @@ La solución está construida bajo un enfoque serverless, con integración conti
 
 Código fuente → GitHub → GitHub Actions → WIF → Cloud Build → Cloud Run → Cloud Storage
 
+## Arquitectura
+
+```mermaid
+flowchart TD
+
+A[VS Code - Código] --> B[Git Commit]
+B --> C[Git Push]
+C --> D[GitHub]
+
+D --> E[GitHub Actions]
+E --> F[Autenticación WIF]
+F --> G[GCP IAM]
+
+G --> H[Service Account]
+H --> I[Workload Identity]
+
+I --> J[Cloud Build]
+J --> K[Artifact Registry]
+
+K --> L[Cloud Run]
+L --> M[Servicio Activo]
+M --> N[Procesamiento Flask]
+N --> O[Generación Excel]
+O --> P[Cloud Storage]
+
 ### 3.2 Componentes
 
 * Control de código fuente: GitHub
