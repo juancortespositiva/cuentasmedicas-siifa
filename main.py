@@ -2,8 +2,12 @@ from google.cloud import bigquery, storage
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
+from flask import Flask
+import logging
 
+# ==============================
 # CONFIGURACION
+# ==============================
 PROJECT_ID = "analitica-contact-center-dev"
 DATASET = "CUENTAS_MEDICAS"
 VIEW = "vw_facturacion_siifa_dian"
@@ -11,7 +15,14 @@ VIEW = "vw_facturacion_siifa_dian"
 BUCKET_NAME = "buckets-aws"
 DESTINO_BLOB = "cuentasmedicas/facturacion_siifa"
 
+# ==============================
+# LOGS
+# ==============================
+logging.basicConfig(level=logging.INFO)
+
+# ==============================
 # 1. LEER BIGQUERY
+# ==============================
 def leer_bigquery():
     client = bigquery.Client(project=PROJECT_ID)
 
@@ -21,27 +32,31 @@ def leer_bigquery():
     """
 
     df = client.query(query).to_dataframe()
-    print(f"Registros leidos: {len(df)}")
+    logging.info(f"Registros leidos: {len(df)}")
 
     return df
 
+# ==============================
 # 2. GENERAR EXCEL EN MEMORIA
+# ==============================
 def generar_excel_en_memoria(df):
     buffer = BytesIO()
 
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="SIIFA")
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='SIIFA')
 
     buffer.seek(0)
 
     fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_archivo = f"facturacion_siifa_{fecha}.xlsx"
 
-    print(f"Excel generado en memoria: {nombre_archivo}")
+    logging.info(f"Excel generado en memoria: {nombre_archivo}")
 
     return buffer, nombre_archivo
 
+# ==============================
 # 3. SUBIR A GCS DESDE MEMORIA
+# ==============================
 def subir_gcs_desde_memoria(buffer, nombre_archivo):
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
@@ -53,18 +68,33 @@ def subir_gcs_desde_memoria(buffer, nombre_archivo):
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    print(f"Archivo subido a gcp: gs://{BUCKET_NAME}/{DESTINO_BLOB}/{nombre_archivo}")
+    logging.info(f"Archivo subido a gcs: gs://{BUCKET_NAME}/{DESTINO_BLOB}/{nombre_archivo}")
 
-# MAIN
+# ==============================
+# 4. PROCESO PRINCIPAL
+# ==============================
 def main():
     df = leer_bigquery()
 
     if df.empty:
-        print("No hay datos para procesar")
-        return
+        logging.info("No hay datos para procesar")
+        return "Sin datos"
 
     buffer, nombre_archivo = generar_excel_en_memoria(df)
     subir_gcs_desde_memoria(buffer, nombre_archivo)
 
+    return "Proceso completado"
+
+# ==============================
+# 5. FLASK (CLOUD RUN)
+# ==============================
+app = Flask(__name__)
+
+@app.route("/")
+def ejecutar():
+    resultado = main()
+    return resultado
+
+# IMPORTANTE PARA CLOUD RUN
 if __name__ == "__main__":
-    main()
+    app.run(host="0.0.0.0", port=8080)
