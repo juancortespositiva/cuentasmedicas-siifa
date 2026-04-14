@@ -140,8 +140,7 @@ def main():
 # ==============================
 app = Flask(__name__)
 
-
-@app.route("/")
+@app.route("/v1/generar-siifa")
 def ejecutar():
     """
     Endpoint principal para ejecutar el proceso.
