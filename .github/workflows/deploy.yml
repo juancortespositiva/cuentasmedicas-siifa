@@ -5,44 +5,43 @@ on:
     branches:
       - main
 
-env:
-  PROJECT_ID: analitica-contact-center-dev
-  SERVICE_NAME: cuentasmedicas-siifa
-  REGION: us-central1
-  REPOSITORY: proyecto-dataton-artifacts
-  IMAGE: cuentasmedicas-siifa
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v3
+    permissions:
+      contents: read
+      id-token: write  #  CLAVE para Workload Identity
 
-      - name: Autenticarse en GCP
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      #  Autenticación SIN JSON (Workload Identity)
+      - id: auth
+        name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: projects/328737502436/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions-sa@analitica-contact-center-dev.iam.gserviceaccount.com
 
-      - name: Configurar gcloud
+      #  Configurar gcloud
+      - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
 
-      - name: Build imagen
+      - name: Configure project
+        run: gcloud config set project analitica-contact-center-dev
+
+      #  Build imagen
+      - name: Build Docker image
         run: |
-          gcloud builds submit \
-            --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE:${{ github.sha }}
-            --async
-      - name: Deploy a Cloud Run
+          gcloud builds submit --tag gcr.io/analitica-contact-center-dev/cuentasmedicas-siifa
+
+      #  Deploy a Cloud Run
+      - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy $SERVICE_NAME \
-            --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE:${{ github.sha }} \
-            --region $REGION \
+          gcloud run deploy cuentasmedicas-siifa \
+            --image gcr.io/analitica-contact-center-dev/cuentasmedicas-siifa \
+            --region us-central1 \
             --platform managed \
-            --allow-unauthenticated \
-            --memory=2Gi \
-            --cpu=1 \
-            --timeout=900 \
-            --concurrency=1
+            --allow-unauthenticated
