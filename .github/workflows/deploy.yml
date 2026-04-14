@@ -34,7 +34,7 @@ jobs:
         run: |
           gcloud builds submit \
             --tag $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE:${{ github.sha }}
-
+            --async
       - name: Deploy a Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
