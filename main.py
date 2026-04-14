@@ -144,7 +144,7 @@ def enviar_siifa(df, token):
 # 5. TRUNCATE RESULTADOS
 # ==============================
 def truncate_resultados():
-    client = bigquery.Client(project=PROJECT_ID)
+    client = bigquery.Client(project=PROJECT_ID, location="US")  # ✅ FIX
 
     query = f"TRUNCATE TABLE `{PROJECT_ID}.{DATASET}.{TABLA_RESULTADOS}`"
     client.query(query).result()
@@ -156,7 +156,7 @@ def truncate_resultados():
 # 6. GUARDAR RESULTADO
 # ==============================
 def guardar_resultado(response_text, status):
-    client = bigquery.Client(project=PROJECT_ID)
+    client = bigquery.Client(project=PROJECT_ID, location="US")
 
     df_res = pd.DataFrame([{
         "id": str(uuid.uuid4()),
@@ -177,7 +177,8 @@ def guardar_resultado(response_text, status):
 # 7. AUDITORIA
 # ==============================
 def insertar_auditoria(df, response_text):
-    client = bigquery.Client(project=PROJECT_ID)
+
+    client = bigquery.Client(project=PROJECT_ID, location="US")
 
     tabla = f"{PROJECT_ID}.{DATASET}.{TABLA_AUDITORIA}"
 
