@@ -30,8 +30,9 @@ La solución está construida bajo un enfoque serverless, con integración conti
 
 Código fuente → GitHub → GitHub Actions → WIF → Cloud Build → Cloud Run → Cloud Storage
 
-## Arquitectura
 
+
+## Arquitectura
 ```mermaid
 flowchart TD
 
@@ -54,6 +55,7 @@ L --> M[Servicio Activo]
 M --> N[Procesamiento Flask]
 N --> O[Generacion Excel]
 O --> P[Cloud Storage]
+
 
 
 
