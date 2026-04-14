@@ -120,6 +120,16 @@ def insertar_auditoria(df):
         df_aud["fecha_emision"] = df["Fecha_emision"]
         df_aud["fecha_vencimiento"] = df["Fecha_vencimiento"]
 
+# Campos de auditoria
+        df_aud["estado"] = "SIMULADO"
+        df_aud["tipo_operacion"] = "INSERT"
+        df_aud["mensaje"] = "Simulacion exitosa"
+        df_aud["request_json"] = None
+        df_aud["response_json"] = None
+        df_aud["fecha_proceso"] = datetime.now()
+        df_aud["usuario"] = "cloud_run"
+        df_aud["origen"] = "API"
+
         # ==============================
         # CAMPOS DE CONTROL
         # ==============================
