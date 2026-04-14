@@ -35,12 +35,12 @@ Código fuente → GitHub → GitHub Actions → WIF → Cloud Build → Cloud R
 ```mermaid
 flowchart TD
 
-A[VS Code - Código] --> B[Git Commit]
+A[VS Code - Codigo] --> B[Git Commit]
 B --> C[Git Push]
 C --> D[GitHub]
 
 D --> E[GitHub Actions]
-E --> F[Autenticación WIF]
+E --> F[Autenticacion WIF]
 F --> G[GCP IAM]
 
 G --> H[Service Account]
@@ -52,7 +52,7 @@ J --> K[Artifact Registry]
 K --> L[Cloud Run]
 L --> M[Servicio Activo]
 M --> N[Procesamiento Flask]
-N --> O[Generación Excel]
+N --> O[Generacion Excel]
 O --> P[Cloud Storage]
 
 ### 3.2 Componentes
