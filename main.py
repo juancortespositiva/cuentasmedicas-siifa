@@ -77,7 +77,7 @@ def main():
     df = leer_bigquery()
 
     if df.empty:
-        logging.info("No hay datos para procesar")
+        logging.info("No hay datos para procesar N/A")
         return "Sin datos"
 
     buffer, nombre_archivo = generar_excel_en_memoria(df)
