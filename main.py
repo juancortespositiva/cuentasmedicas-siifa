@@ -44,9 +44,6 @@ logging.basicConfig(level=logging.INFO)
 def leer_bigquery():
     """
     Consulta datos desde la vista base en BigQuery.
-
-    Returns:
-        pandas.DataFrame: Datos obtenidos de la vista.
     """
     client = bigquery.Client(project=PROJECT_ID)
 
@@ -62,10 +59,7 @@ def leer_bigquery():
 
 
 # ==============================
-# 2. INSERTAR AUDITORIA SIN DUPLICADOS
-# ==============================
-# ==============================
-# 2. INSERTAR AUDITORIA SIN DUPLICADOS (FIXED)
+# 2. INSERTAR AUDITORIA SIN DUPLICADOS (FIX REAL)
 # ==============================
 def insertar_auditoria(df):
     """
@@ -94,31 +88,41 @@ def insertar_auditoria(df):
 
         df_existentes = client.query(query_existentes).to_dataframe()
 
-        logging.info(f"Facturas existentes en auditoria: {len(df_existentes)}")
+        logging.info(f"Facturas existentes: {len(df_existentes)}")
 
         # ==============================
         # 2. FILTRAR DUPLICADOS
         # ==============================
         if not df_existentes.empty:
             facturas_existentes = set(df_existentes["numero_factura"].astype(str))
-
             df = df[~df["Numero_factura"].astype(str).isin(facturas_existentes)]
 
         logging.info(f"Registros nuevos a insertar: {len(df)}")
 
         if df.empty:
-            logging.info("No hay registros nuevos (todos duplicados)")
+            logging.info("No hay registros nuevos (todo duplicado)")
             return
 
         # ==============================
-        # 3. PREPARAR DATAFRAME
+        # 3. MAPEO CORRECTO DE COLUMNAS
         # ==============================
-        df_aud = df.copy()
+        df_aud = pd.DataFrame()
 
-        # ⚠️ IMPORTANTE: bajar nombres a match con BigQuery
-        df_aud.columns = [col.lower() for col in df_aud.columns]
+        df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df))]
 
-        df_aud["id_registro"] = [str(uuid.uuid4()) for _ in range(len(df_aud))]
+        df_aud["identificador_factura"] = df["Identificador_de_factura"]
+        df_aud["numero_factura"] = df["Numero_factura"]
+        df_aud["id_cuenta_nur"] = df["IdCuenta_Nur"]
+        df_aud["id_emisor"] = df["ID_emisor"]
+        df_aud["id_adquiriente"] = df["ID_adquiriente"]
+        df_aud["valor_total"] = df["Valor_total"]
+        df_aud["pagos_previos"] = df["Pagos_previos"]
+        df_aud["fecha_emision"] = df["Fecha_emision"]
+        df_aud["fecha_vencimiento"] = df["Fecha_vencimiento"]
+
+        # ==============================
+        # CAMPOS DE CONTROL
+        # ==============================
         df_aud["estado"] = "SIMULADO"
         df_aud["tipo_operacion"] = "INSERT"
         df_aud["mensaje"] = "Simulacion exitosa"
@@ -128,27 +132,19 @@ def insertar_auditoria(df):
         df_aud["usuario"] = "cloud_run"
         df_aud["origen"] = "API"
 
-        logging.info("Insertando en BigQuery...")
+        # ==============================
+        # 4. INSERTAR EN BIGQUERY
+        # ==============================
+        logging.info("Insertando registros en auditoria...")
 
-        # ==============================
-        # 4. INSERTAR
-        # ==============================
         job = client.load_table_from_dataframe(df_aud, tabla_destino)
         job.result()
 
-        logging.info(f"Registros insertados en auditoria: {len(df_aud)}")
+        logging.info(f"Registros insertados: {len(df_aud)}")
 
     except Exception as e:
         logging.error(f"Error en auditoria: {str(e)}")
         raise
-
-    # ==============================
-    # 3. INSERTAR EN BIGQUERY
-    # ==============================
-    job = client.load_table_from_dataframe(df_aud, tabla_destino)
-    job.result()
-
-    logging.info(f"Registros insertados en auditoria: {len(df_aud)}")
 
 
 # ==============================
@@ -157,12 +153,6 @@ def insertar_auditoria(df):
 def generar_excel_en_memoria(df):
     """
     Genera un archivo Excel en memoria.
-
-    Args:
-        df (pandas.DataFrame)
-
-    Returns:
-        tuple: buffer y nombre del archivo
     """
     buffer = BytesIO()
 
