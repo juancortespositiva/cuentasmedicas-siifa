@@ -25,6 +25,7 @@ import uuid
 import requests
 import os
 from dotenv import load_dotenv
+import hashlib
 
 # ==============================
 # LOAD ENV
@@ -69,22 +70,22 @@ def leer_bigquery():
 # 2. LOGIN SIIFA
 # ==============================
 def login():
+    print("🔐 Login SIIFA...")
+
     r = requests.post(
         f"{BASE_AUTH}/api/Auth/login",
-        json={"userName": USERNAME, "password": PASSWORD},
-        timeout=30
+        json={
+            "userName": USERNAME,
+            "password": PASSWORD  # 👈 TEXTO PLANO
+        }
     )
 
     if r.status_code != 200:
-        raise Exception(f"Error login SIIFA: {r.text}")
+        print("❌ Error login:", r.text)
+        return None
 
-    data = r.json()
-    token = data.get("token") or data.get("access_token") or data.get("data", {}).get("token")
-
-    if not token:
-        raise Exception(f"No token: {data}")
-
-    return token
+    print("✅ Login OK\n")
+    return r.json()["token"]
 
 # ==============================
 # 3. PAYLOAD
