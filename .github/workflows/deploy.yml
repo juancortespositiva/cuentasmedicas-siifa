@@ -47,4 +47,4 @@ jobs:
           --region us-central1 \
           --platform managed \
           --allow-unauthenticated \
-          --set-env-vars SIIFA_USER=${{ secrets.SIIFA_USER }},SIIFA_PASSWORD=${{ secrets.SIIFA_PASSWORD }},SIIFA_BASE_AUTH=${{ secrets.SIIFA_BASE_AUTH }},SIIFA_BASE_API=${{ secrets.SIIFA_BASE_API }},PROJECT_ID=${{ secrets.PROJECT_ID }},DATASET=${{ secrets.DATASET }},BUCKET_NAME=${{ secrets.BUCKET_NAME }},DESTINO_BLOB=${{ secrets.DESTINO_BLOB }}
+          --set-env-vars SIIFA_USER=${{ secrets.SIIFA_USER }},SIIFA_PASSWORD="${{ secrets.SIIFA_PASSWORD }}",SIIFA_BASE_AUTH=${{ secrets.SIIFA_BASE_AUTH }},SIIFA_BASE_API=${{ secrets.SIIFA_BASE_API }},PROJECT_ID=${{ secrets.PROJECT_ID }},DATASET=${{ secrets.DATASET }},BUCKET_NAME=${{ secrets.BUCKET_NAME }},DESTINO_BLOB=${{ secrets.DESTINO_BLOB }}
